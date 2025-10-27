@@ -609,6 +609,10 @@ class LEDCallbacks : public NimBLECharacteristicCallbacks {
                 sendLEDIntensities();
                 break;
 
+            case 9: // SEND BATTERY LEVEL
+                sendBatteryLevel();
+                break;
+
             default:
                 Serial.println("LEDCallback: Unknown command code received");
                 Serial.println(commandCode);
