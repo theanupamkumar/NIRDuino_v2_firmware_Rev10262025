@@ -16,7 +16,7 @@
 #include "rom/ets_sys.h" 
 
 // --- DEBUG & CONFIGURATION ---
-// #define DEBUG_MODE
+#define DEBUG_MODE
 #define STORAGE_NAMESPACE "led_storage"
 #define LED_INTENSITIES_KEY "led_intensities"
 
@@ -117,6 +117,8 @@ static int ledIntensities[NUM_LEDS] = {
     50,  50,  50,  50,  50,  50,  50,  50,
     50,  50,  50,  50,  50,  50,  50,  50
 };
+
+// int rangeOfValues[10] = [105, 115, 125, 135, 145, 155,   165,   175,   185,   195,   205,   215,   225,   235,   245,   255]
 
 // --- BLE UUIDs and Device Name ---
 #define DEVICE_NAME               "BBOL NIRDuino (Nano ESP32)"
@@ -547,29 +549,35 @@ class LEDCallbacks : public NimBLECharacteristicCallbacks {
                 // The LED intensity data starts at the second byte (index 1) of the payload
                 ledIntensities[i] = (uint8_t)rxValue[i + 1];
             }
-            
-            #ifdef DEBUG_MODE
-              Serial.print("LEDCallback: Updated ");
-              Serial.print(numLedsToUpdate);
-              // Optional: Print the first few values to confirm they are correct now
-              Serial.print("New intensities: ");
-              Serial.print("LED[0]=");
-              Serial.print(ledIntensities[0]);
-              Serial.print(", LED[1]=");
-              Serial.print(ledIntensities[1]);
-              Serial.print(", LED[2]=");
-              Serial.print(ledIntensities[2]);
-              Serial.print(", LED[3]=");
-              Serial.println(ledIntensities[3]); // println for newline
-            #endif
+        
+            Serial.print("LED Intensities:\n");
+
+            // Print first 16 LEDs on one line
+            for (int i = 0; i < 16; i++) {
+            Serial.print(i + 1);
+            Serial.print("=");
+            Serial.print(ledIntensities[i]);
+            if (i < 15) Serial.print(",\t");
+            }
+            Serial.println(); // new line after first 16
+
+            // Print next 16 LEDs on second line
+            for (int i = 16; i < 32; i++) {
+            Serial.print(i + 1);
+            Serial.print("=");
+            Serial.print(ledIntensities[i]);
+            if (i < 31) Serial.print(",\t");
+            }
+            Serial.println(); // final newline
+
         }
 
         // Handle commands (This part remains the same)
         switch (commandCode) {
             case 1: // START DATA ACQUISITION
-                #ifdef DEBUG_MODE
+                // #ifdef DEBUG_MODE
                 Serial.println("Command: START DATA ACQUISITION");
-                #endif
+                // #endif
                 readDataBool = true; 
                 // Queue async save operation to avoid blocking BLE
                 {
@@ -603,14 +611,14 @@ class LEDCallbacks : public NimBLECharacteristicCallbacks {
                 sendBatteryLevel();
                 break;
 
-            case 5: // SEND CURRENT LED SETTINGS
-                Serial.println("Command: SEND CURRENT LED SETTINGS");
-                readDataBool = false;
-                sendLEDIntensities();
-                break;
-
             case 9: // SEND BATTERY LEVEL
                 sendBatteryLevel();
+                break;
+
+            case 11: // RETURN DESIRED LED Intensity levels
+                // automaticLEDIntensityAdjustment()
+                // sendLEDIntensities();
+                // source/detector voltageR > 0.4 and less than <4.0V
                 break;
 
             default:
@@ -925,6 +933,7 @@ static void set_source_state(int sourceNumber) {
     // For example: turn_on_led(sourceNumber);
      // Case for dark current measurement (all LEDs off)
     gpio_set_level(esp_MUX_EN, 1);
+
     if (sourceNumber == 32) {
         // Disable MUX (active low, so set HIGH)
         gpio_set_level(esp_MUX_EN, 1);
@@ -960,7 +969,7 @@ static void set_source_state(int sourceNumber) {
 
         // Add a small, blocking delay to let the DAC voltage stabilize before ADC reading.
         // esp_rom_delay_us is used for short, precise delays inside a real-time task.
-        esp_rom_delay_us(500);
+        esp_rom_delay_us(1500);
     }
 }
 /**
@@ -1093,11 +1102,11 @@ static void adc_sampling_task(void* arg) {
             //   Serial.print(" ");
             // }
 
-            Serial.print("| Stored Interval: ");
-            Serial.print(interval);
-            Serial.print(" ms | Cycle Time: ");
-            Serial.print(cycle_duration_us);
-            Serial.println(" us\n");
+            // Serial.print("| Stored Interval: ");
+            // Serial.print(interval);
+            // Serial.print(" ms | Cycle Time: ");
+            // Serial.print(cycle_duration_us);
+            // Serial.println(" us\n");
             // #endif
 
             // 5. Advance the source number. If a full round is complete,
@@ -1168,7 +1177,7 @@ void ble_broadcast_task(void *pvParameters) {
     while(1) {
         if(xSemaphoreTake(ble_semaphore, portMAX_DELAY) == pdTRUE) {
             if (readDataBool && deviceConnected) {
-                Serial.println("Data packet ready. Starting broadcast...");
+                // Serial.println("Data packet ready. Starting broadcast...");
                 
                 dataPacketSnippet[0] = 1;
                 memcpy(&dataPacketSnippet[1], &dataPacketToSend[0], (CHUNK_1_ELEMENTS - 1) * sizeof(int32_t));
@@ -1189,7 +1198,7 @@ void ble_broadcast_task(void *pvParameters) {
                 dataPacketSnippet[0] = 5;
                 memcpy(&dataPacketSnippet[1], &dataPacketToSend[28 * 17], (CHUNK_2_ELEMENTS - 1) * sizeof(int32_t));
                 sendDataViaBLE(pDataCharacteristic, (uint8_t*)dataPacketSnippet, CHUNK_2_ELEMENTS * sizeof(int32_t));
-                Serial.println("Full data packet sent.");
+                // Serial.println("Full data packet sent.");
             }
         }
     }
