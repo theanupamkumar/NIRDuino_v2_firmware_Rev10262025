@@ -19,7 +19,7 @@
 #define DEBUG_MODE
 #define STORAGE_NAMESPACE "led_storage"
 #define LED_INTENSITIES_KEY "led_intensities"
-#define DEBUG_BYPASS_BATTERY
+// #define DEBUG_BYPASS_BATTERY
 
 // --- PIN DEFINITIONS (IMPORTANT: UPDATE THESE TO MATCH YOUR HARDWARE) ---
 // RGB Status LED
@@ -552,10 +552,10 @@ esp_err_t initLEDIntensitiesNVS(void)
  */
 static void sendLEDIntensities(void)
 {
-    if (deviceConnected && pLEDCharacteristic != nullptr) {
+    if (deviceConnected && pDataCharacteristic != nullptr) {
         ESP_LOGI(TAG, "Sending all %d calibrated LED intensities over BLE...", NUM_LEDS);
         // We send the raw 32-byte array. The app knows how to parse this.
-        pLEDCharacteristic->notify(ledIntensities, NUM_LEDS);
+        pDataCharacteristic->notify(ledIntensities, NUM_LEDS);
     } else {
         ESP_LOGW(TAG, "Cannot send intensities, no client connected.");
     }
@@ -668,8 +668,14 @@ void process_led_calibration_config(uint8_t* sources, uint8_t* detectors, size_t
         
         ESP_LOGI(TAG, "\nCalibrating Pair %u/%u: (Source %u [Type: %s], Detector %u)", 
             (unsigned int)i + 1, (unsigned int)count, s, type_str, d);
+        
+        // Collect all valid intensities, don't stop at the first match
+        int valid_intensities[/* max = */ 64];  // adjust if your range can exceed 64
+        size_t valid_count = 0;
+        bool out_of_range_detected = false;
 
         bool found = false;
+        // Step 1: sweep and save intensities
         for (size_t j = 0; j < rangeOfValuesCount; j++) {
             int test_intensity = rangeOfValues[j];
 
@@ -679,16 +685,46 @@ void process_led_calibration_config(uint8_t* sources, uint8_t* detectors, size_t
 
             ESP_LOGI(TAG, "  Try Intensity %d -> Read %.3f V", test_intensity, voltage);
 
-            if (voltage >= 0.4 && voltage <= 4.0) {
-                ESP_LOGI(TAG, "  SUCCESS: Found valid intensity %d for Source %u!", test_intensity, s);
-                ledIntensities[s] = test_intensity; 
-                found = true;
-                break; 
+            if (voltage >= 0.4f && voltage <= 4.0f) {
+                // Record as valid candidate
+                if (valid_count < (sizeof(valid_intensities)/sizeof(valid_intensities[0]))) {
+                    valid_intensities[valid_count++] = test_intensity;
+                } else {
+                    ESP_LOGW(TAG, "  Skipping additional valid intensities (buffer full)");
+                }
+            }
+            else {
+                 out_of_range_detected = true;
             }
         }
-
-        if (!found) {
+        // Step 2: Decide intensity
+        if (out_of_range_detected) {
+            ledIntensities[s] = 0;
+            ESP_LOGW(TAG, "  WARNING: Out-of-range voltages detected. Setting Source %u intensity to 0.", s);
+        } 
+        else if (valid_count == 0) {
+            ledIntensities[s] = 0;
             ESP_LOGW(TAG, "  FAILED: No valid intensity found for Source %u in the given range.", s);
+        } 
+        else {
+            // rangeOfValues is usually sorted, but be safe: simple insertion sort (no stdlib needed)
+            for (size_t a = 1; a < valid_count; a++) {
+                int key = valid_intensities[a];
+                size_t b = a;
+                while (b > 0 && valid_intensities[b - 1] > key) {
+                    valid_intensities[b] = valid_intensities[b - 1];
+                    b--;
+                }
+                valid_intensities[b] = key;
+            }
+
+            // Pick median (lower-middle for even count)
+            size_t median_idx = (valid_count - 1) / 2;
+            int median_intensity = valid_intensities[median_idx];
+
+            ledIntensities[s] = median_intensity;
+            ESP_LOGI(TAG, "  SUCCESS: %zu valid values found. Median intensity for Source %u = %d",
+                     valid_count, s, median_intensity);
         }
     }
 
@@ -841,7 +877,13 @@ class LEDCallbacks : public NimBLECharacteristicCallbacks {
                 }
 
                 // First byte after command is the count
-                size_t count = (uint8_t)rxValue[1];
+                int count = rxValue[1];
+
+                Serial.println("rx0, rx1, count value are below:");
+                Serial.println(rxValue[0]);
+                Serial.println(rxValue[1]);
+                Serial.println(count);
+
                 // 1 byte for cmd, 1 byte for count, 2 * count bytes for data (sources + detectors)
                 size_t expected_length = 2 + (2 * count); 
 
