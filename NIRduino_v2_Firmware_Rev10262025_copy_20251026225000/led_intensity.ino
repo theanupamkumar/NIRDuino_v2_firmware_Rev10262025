@@ -748,7 +748,7 @@ class LEDCallbacks : public NimBLECharacteristicCallbacks {
         #endif
 
         // Update LED intensities if data is provided
-        if (rxValue.length() > 1) {
+        if (rxValue.length() > 1 && commandCode != 23) {
             // Determine how many LED values we actually received
             size_t numLedsReceived = rxValue.length() - 1;
             // Determine the maximum number of LEDs we can update in our array
@@ -832,7 +832,7 @@ class LEDCallbacks : public NimBLECharacteristicCallbacks {
                 // source/detector voltageR > 0.4 and less than <4.0V
                 break;
             
-            case 12: // PROCESS LED INTENSITY CALIBRATION CONFIG
+            case 23: // PROCESS LED INTENSITY CALIBRATION CONFIG
               {
                 ESP_LOGI(TAG, "Command: PROCESS LED CALIBRATION CONFIG");
                 if (rxValue.length() < 2) {
@@ -1331,18 +1331,15 @@ static void adc_sampling_task(void* arg) {
             // Current read order: AIN0->AIN7 stored in adcX_values[0] through adcX_values[7].
             int base_index = sourceNumber * SLOTS_PER_SOURCE;
 
-            // --- Remap and store ADC1 data ---
-            // Copy AIN1-AIN7 (from adc1_values[1]..[7]) to the first 7 slots.
-            memcpy(&data_packet[base_index], &adc1_values[0], 8 * sizeof(int32_t));
+            memcpy(&data_packet[base_index], &adc1_values[1], 7 * sizeof(int32_t));
             // Copy AIN0 (from adc1_values[0]) to the 8th slot.
-            // data_packet[base_index + 7] = adc1_values[0];
-
+            data_packet[base_index + 7] = adc1_values[0];
 
             // --- Remap and store ADC2 data ---
             // Copy AIN1-AIN7 (from adc2_values[1]..[7]) to the next 7 slots (detectors 9-15).
-            memcpy(&data_packet[base_index + 8], &adc2_values[0], 8 * sizeof(int32_t));
+            memcpy(&data_packet[base_index + 8], &adc2_values[1], 7 * sizeof(int32_t));
             // Copy AIN0 (from adc2_values[0]) to the 16th slot (detector 16).
-            // data_packet[base_index + 15] = adc2_values[0];
+            data_packet[base_index + 15] = adc2_values[0];
 
             // 4. Calculate and store the time interval since the last measurement.
             // uint32_t current_time_ms = (uint32_t)(esp_timer_get_time() / 1000);
